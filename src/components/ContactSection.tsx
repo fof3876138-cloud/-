@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { Mail, Phone, MapPin, Send, CheckCircle2, Clock } from 'lucide-react';
+import { Mail, Phone, MapPin, Send, CheckCircle2, Clock, Loader2, AlertCircle } from 'lucide-react';
+
+const FORMSPREE_ENDPOINT = 'https://formspree.io/f/xbgozdpn';
 
 export const ContactSection: React.FC = () => {
   const [formData, setFormData] = useState({
@@ -7,16 +9,57 @@ export const ContactSection: React.FC = () => {
     contact: '',
     message: '',
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.contact) return;
-    setIsSubmitted(true);
-    setTimeout(() => {
-      setIsSubmitted(false);
+    if (!formData.name.trim() || !formData.contact.trim() || isSubmitting) return;
+
+    setIsSubmitting(true);
+    setSubmitError(null);
+
+    const trimmedName = formData.name.trim();
+    const trimmedContact = formData.contact.trim();
+    const trimmedMessage = formData.message.trim();
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedContact);
+
+    try {
+      const response = await fetch(FORMSPREE_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          name: trimmedName,
+          contact: trimmedContact,
+          ...(isEmail ? { email: trimmedContact } : {}),
+          message: trimmedMessage || '(문의 내용 없음)',
+          _subject: `[봉봉 아틀리에 문의] ${trimmedName}`,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        const errorMsg =
+          data?.errors?.map((err: { message?: string }) => err.message).filter(Boolean).join(', ') ||
+          '문의 접수 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.';
+        throw new Error(errorMsg);
+      }
+
+      setIsSubmitted(true);
       setFormData({ name: '', contact: '', message: '' });
-    }, 4500);
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error
+          ? err.message
+          : '네트워크 연결을 확인하신 후 다시 시도해 주세요.'
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -104,19 +147,28 @@ export const ContactSection: React.FC = () => {
               </h3>
 
               {isSubmitted ? (
-                <div className="py-12 text-center space-y-3">
+                <div className="py-10 sm:py-12 text-center space-y-3">
                   <div className="w-12 h-12 rounded-full bg-[#E8F5E9] text-[#2E7D32] flex items-center justify-center mx-auto">
                     <CheckCircle2 className="w-6 h-6" />
                   </div>
                   <h4 className="font-serif-kr text-lg font-bold text-[#240C14]">
                     문의가 정갈하게 접수되었습니다
                   </h4>
-                  <p className="text-xs text-[#5A2332] max-w-sm mx-auto leading-relaxed">
+                  <p className="text-xs text-[#5A2332] max-w-sm mx-auto leading-relaxed break-keep">
                     작가가 내용 확인 후 영업일 기준 24시간 이내에 남겨주신 연락처로 정성껏 회신드리겠습니다.
                   </p>
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsSubmitted(false)}
+                      className="inline-flex items-center justify-center min-h-[40px] px-4 py-2 text-xs font-semibold text-[#7A283C] hover:text-[#240C14] bg-[#FFF5F7] hover:bg-[#FFD6D6] border border-[#FFD6D6] rounded-lg transition-colors cursor-pointer"
+                    >
+                      추가 문의 작성하기
+                    </button>
+                  </div>
                 </div>
               ) : (
-                <form onSubmit={handleSubmit} className="space-y-4">
+                <form action={FORMSPREE_ENDPOINT} method="POST" onSubmit={handleSubmit} className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-semibold text-[#240C14] mb-1.5">
@@ -124,6 +176,7 @@ export const ContactSection: React.FC = () => {
                       </label>
                       <input
                         type="text"
+                        name="name"
                         required
                         placeholder="예: 김민지 / (주)아틀리에"
                         value={formData.name}
@@ -137,6 +190,7 @@ export const ContactSection: React.FC = () => {
                       </label>
                       <input
                         type="text"
+                        name="contact"
                         required
                         placeholder="010-0000-0000 / email@domain.com"
                         value={formData.contact}
@@ -151,6 +205,7 @@ export const ContactSection: React.FC = () => {
                       문의 내용
                     </label>
                     <textarea
+                      name="message"
                       rows={5}
                       placeholder={
                         '기업, 관공서, 동호회, 선물세트 등 단체주문 건 페이지 입니다.\n\n제품구성, 수량, 납기일 등 간단한 정보와 함께 문의 남겨주시면\n영업일기준 1일 이내 담당 디자이너가 직접 연락드립니다.'
@@ -161,12 +216,29 @@ export const ContactSection: React.FC = () => {
                     />
                   </div>
 
+                  {submitError && (
+                    <div className="flex items-start gap-2 p-3 rounded-lg bg-[#FFF5F5] border border-[#F5B8B8] text-xs text-[#A8243A]" role="alert">
+                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span>{submitError}</span>
+                    </div>
+                  )}
+
                   <button
                     type="submit"
-                    className="w-full min-h-[48px] py-3 bg-[#FFD6D6] hover:bg-[#FFC2C2] border border-[#F2B8B8] text-[#240C14] text-sm font-bold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs active:scale-[0.99]"
+                    disabled={isSubmitting}
+                    className="w-full min-h-[48px] py-3 bg-[#FFD6D6] hover:bg-[#FFC2C2] disabled:opacity-60 disabled:cursor-not-allowed border border-[#F2B8B8] text-[#240C14] text-sm font-bold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs active:scale-[0.99]"
                   >
-                    <Send className="w-3.5 h-3.5" />
-                    <span>문의 접수하기</span>
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>문의 접수 중...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3.5 h-3.5" />
+                        <span>문의 접수하기</span>
+                      </>
+                    )}
                   </button>
                 </form>
               )}
